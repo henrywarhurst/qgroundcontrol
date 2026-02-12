@@ -407,7 +407,7 @@ void QGCCameraManager::_handleCameraSettings(const mavlink_message_t& message)
     if (pCamera) {
         mavlink_camera_settings_t settings{};
         mavlink_msg_camera_settings_decode(&message, &settings);
-        pCamera->handleSettings(settings);
+        pCamera->handleCameraSettings(settings);
 
         const int newZoom = static_cast<int>(settings.zoomLevel);
         if (QThread::currentThread() == thread()) {

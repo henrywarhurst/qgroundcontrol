@@ -112,40 +112,64 @@ VehicleCameraControl::VehicleCameraControl(const mavlink_camera_information_t *i
     , _compID(compID)
 {
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
-    memcpy(&_info, info, sizeof(mavlink_camera_information_t));
-    connect(this, &VehicleCameraControl::dataReady, this, &VehicleCameraControl::_dataReady);
+
+    memcpy(&_mavlinkCameraInfo, info, sizeof(mavlink_camera_information_t));
+
     _vendor = QString(reinterpret_cast<const char*>(info->vendor_name));
     _modelName = QString(reinterpret_cast<const char*>(info->model_name));
-    int ver = static_cast<int>(_info.cam_definition_version);
     _cacheFile = QString::asprintf("%s/%s_%s_%03d.xml",
-        SettingsManager::instance()->appSettings()->parameterSavePath().toStdString().c_str(),
-        _vendor.toStdString().c_str(),
-        _modelName.toStdString().c_str(),
-        ver);
+                                    SettingsManager::instance()->appSettings()->parameterSavePath().toStdString().c_str(),
+                                    _vendor.toStdString().c_str(),
+                                    _modelName.toStdString().c_str(),
+                                    static_cast<int>(_mavlinkCameraInfo.cam_definition_version));
+
     if(info->cam_definition_uri[0] != 0) {
         //-- Process camera definition file
         _handleDefinitionFile(info->cam_definition_uri);
     } else {
         _initWhenReady();
     }
+
     QSettings settings;
-    _photoCaptureMode       = static_cast<PhotoCaptureMode>(settings.value(kPhotoMode, static_cast<int>(PHOTO_CAPTURE_SINGLE)).toInt());
-    _photoLapse      = settings.value(kPhotoLapse, 1.0).toDouble();
+    _photoCaptureMode = static_cast<PhotoCaptureMode>(settings.value(kPhotoMode, static_cast<int>(PHOTO_CAPTURE_SINGLE)).toInt());
+    _photoLapse = settings.value(kPhotoLapse, 1.0).toDouble();
     _photoLapseCount = settings.value(kPhotoLapseCount, 0).toInt();
-    _thermalOpacity  = settings.value(kThermalOpacity, 85.0).toDouble();
-    _thermalMode     = static_cast<ThermalViewMode>(settings.value(kThermalMode, static_cast<uint32_t>(THERMAL_BLEND)).toUInt());
+    _thermalOpacity = settings.value(kThermalOpacity, 85.0).toDouble();
+    _thermalMode = static_cast<ThermalViewMode>(settings.value(kThermalMode, static_cast<uint32_t>(THERMAL_BLEND)).toUInt());
+
     _videoRecordTimeUpdateTimer.setSingleShot(false);
     _videoRecordTimeUpdateTimer.setInterval(333);
     connect(&_videoRecordTimeUpdateTimer, &QTimer::timeout, this, &VehicleCameraControl::_recTimerHandler);
+
     //-- Tracking
-    if(_info.flags & CAMERA_CAP_FLAGS_HAS_TRACKING_RECTANGLE) {
+    if(_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_TRACKING_RECTANGLE) {
         _trackingStatus = static_cast<TrackingStatus>(_trackingStatus | TRACKING_RECTANGLE);
         _trackingStatus = static_cast<TrackingStatus>(_trackingStatus | TRACKING_SUPPORTED);
     }
-    if(_info.flags & CAMERA_CAP_FLAGS_HAS_TRACKING_POINT) {
+    if(_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_TRACKING_POINT) {
         _trackingStatus = static_cast<TrackingStatus>(_trackingStatus | TRACKING_POINT);
         _trackingStatus = static_cast<TrackingStatus>(_trackingStatus | TRACKING_SUPPORTED);
     }
+
+    connect(this, &VehicleCameraControl::dataReady, this, &VehicleCameraControl::_dataReady);
+
+    qCDebug(CameraControlLog) << "Camera Info:";
+    qCDebug(CameraControlLog) << "   vendor:" << vendor();
+    qCDebug(CameraControlLog) << "   model:" << modelName();
+    qCDebug(CameraControlLog) << "   version:" << version();
+    qCDebug(CameraControlLog) << "   firmware:" << firmwareVersion();
+    qCDebug(CameraControlLog) << "   focal length:" << focalLength();
+    qCDebug(CameraControlLog) << "   sensor size:" << sensorSize();
+    qCDebug(CameraControlLog) << "   resolution:" << resolution();
+    qCDebug(CameraControlLog) << "   captures video:" << capturesVideo();
+    qCDebug(CameraControlLog) << "   captures photos:" << capturesPhotos();
+    qCDebug(CameraControlLog) << "   has modes:" << showCameraModeSelector();
+    qCDebug(CameraControlLog) << "   has zoom:" << hasZoom();
+    qCDebug(CameraControlLog) << "   has focus:" << hasFocus();
+    qCDebug(CameraControlLog) << "   has tracking:" << hasTracking();
+    qCDebug(CameraControlLog) << "   has video stream:" << hasVideoStream();
+    qCDebug(CameraControlLog) << "   photos in video mode:" << photosInVideoMode();
+    qCDebug(CameraControlLog) << "   video in photo mode:" << videoInPhotoMode();
 }
 
 //-----------------------------------------------------------------------------
@@ -191,19 +215,81 @@ VehicleCameraControl::_initWhenReady()
     connect(&_storageInfoTimer, &QTimer::timeout, this, &VehicleCameraControl::_storageInfoTimeout);
     QTimer::singleShot(2000, this, &VehicleCameraControl::_requestStorageInfo);
 
+    connect(VideoManager::instance(), &VideoManager::recordingChanged, this, &VehicleCameraControl::captureVideoStateChanged);
+    connect(this, &VehicleCameraControl::videoCaptureStatusChanged, this, &VehicleCameraControl::captureVideoStateChanged);
+    connect(this, &VehicleCameraControl::photoCaptureStatusChanged, this, &VehicleCameraControl::captureVideoStateChanged);
+    connect(this, &VehicleCameraControl::photoCaptureStatusChanged, this, &VehicleCameraControl::capturePhotosStateChanged);
+    connect(this, &VehicleCameraControl::cameraModeChanged, this, &VehicleCameraControl::capturePhotosStateChanged);
+
     emit infoChanged();
 
     delete _netManager;
     _netManager = nullptr;
 }
 
+bool VehicleCameraControl::capturesVideo() const
+{
+    // Even if the camera itself does not report video capture capability
+    // we can always save locally from a video stream.
+    return _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM;
+}
+
+bool VehicleCameraControl::capturesPhotos() const
+{
+    // If we have a video stream we can always screen grab from it,
+    //even if the camera itself does not report still capture capability.
+    return _mavlinkCameraInfo.flags & (CAMERA_CAP_FLAGS_CAPTURE_IMAGE | CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM);
+}
+
+bool VehicleCameraControl::showCameraModeSelector() const
+{
+    if (hasVideoStream()) {
+        // We can always screen grab from a video stream
+        return true;
+    }
+
+    // Otherwise we only have photo capture so we don't need the mode selector
+    return false;
+}
+
+MavlinkCameraControl::CaptureVideoState VehicleCameraControl::captureVideoState() const
+{
+    if (_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM) {
+        if (_videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING || VideoManager::instance()->recording()) {
+            return CaptureVideoStateCapturing;
+        } else if (_photoCaptureStatus() != PHOTO_CAPTURE_IDLE) {
+            return CaptureVideoStateDisabled;
+        } else {
+            return CaptureVideoStateIdle;
+        }
+    }
+
+    return CaptureVideoStateDisabled;
+}
+
+MavlinkCameraControl::CapturePhotosState VehicleCameraControl::capturePhotosState() const
+{
+    if (_photoCaptureStatus() == PHOTO_CAPTURE_IN_PROGRESS) {
+        return CapturePhotosStateCapturingSinglePhoto;
+    } else if (_photoCaptureStatus() == PHOTO_CAPTURE_INTERVAL_IN_PROGRESS || _photoCaptureStatus() == PHOTO_CAPTURE_INTERVAL_IDLE) {
+        return CapturePhotosStateCapturingMultiplePhotos;
+    } else if (_photoCaptureStatus() == PHOTO_CAPTURE_IDLE) {
+        // We can always do at least a screen grab fom video stream, even if camera doesn't report still capture capability
+        if (_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM || _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_CAPTURE_IMAGE) {
+                return CapturePhotosStateIdle;
+        }
+    }
+
+    return CapturePhotosStateDisabled;
+}
+
 //-----------------------------------------------------------------------------
 QString
 VehicleCameraControl::firmwareVersion() const
 {
-    int major = (_info.firmware_version >> 24) & 0xFF;
-    int minor = (_info.firmware_version >> 16) & 0xFF;
-    int build = _info.firmware_version & 0xFFFF;
+    int major = (_mavlinkCameraInfo.firmware_version >> 24) & 0xFF;
+    int minor = (_mavlinkCameraInfo.firmware_version >> 16) & 0xFF;
+    int build = _mavlinkCameraInfo.firmware_version & 0xFFFF;
     return QString::asprintf("%d.%d.%d", major, minor, build);
 }
 
@@ -233,17 +319,57 @@ VehicleCameraControl::batteryRemainingStr() const
 
 //-----------------------------------------------------------------------------
 void
-VehicleCameraControl::setCameraMode(CameraMode mode)
+VehicleCameraControl::setCameraModeVideo()
 {
-    if(!_resetting) {
-        qCDebug(CameraControlLog) << "setCameraMode(" << mode << ")";
-        if(mode == CAM_MODE_VIDEO) {
-            setCameraModeVideo();
-        } else if(mode == CAM_MODE_PHOTO) {
-            setCameraModePhoto();
-        } else {
-            qCDebug(CameraControlLog) << "setCameraMode() Invalid mode:" << mode;
-        }
+    if(!_resetting && showCameraModeSelector()) {
+        qCDebug(CameraControlLog) << "setCameraModeVideo()";
+        setCameraMode(CAM_MODE_VIDEO);
+    }
+}
+
+//-----------------------------------------------------------------------------
+void
+VehicleCameraControl::setCameraModePhoto()
+{
+    if(!_resetting && showCameraModeSelector()) {
+        qCDebug(CameraControlLog) << "setCameraModePhoto()";
+        setCameraMode(CAM_MODE_PHOTO);
+    }
+}
+
+//-----------------------------------------------------------------------------
+void
+VehicleCameraControl::setCameraMode(CameraMode cameraMode)
+{
+    if (_resetting) {
+        return;
+    }
+    if (!showCameraModeSelector()) {
+        qCWarning(CameraControlLog) << "Internal Error: Camera does not support modes";
+        return;
+    }
+    if (cameraMode != CAM_MODE_PHOTO && cameraMode != CAM_MODE_VIDEO) {
+        qCWarning(CameraControlLog) << "Internal Error: Invalid camera mode" << cameraMode;
+        return;
+    }
+    if (_cameraMode == cameraMode) {
+        return;
+    }
+
+    //-- Does it have a mode parameter?
+    Fact* pMode = mode();
+    if(pMode) {
+        pMode->setRawValue(cameraMode);
+        _setCameraMode(cameraMode);
+    } else {
+        //-- Use MAVLink Command
+        _vehicle->sendMavCommand(
+            _compID,                                // Target component
+            MAV_CMD_SET_CAMERA_MODE,                // Command id
+            true,                                   // ShowError
+            0,                                      // Reserved (Set to 0)
+            cameraMode);                            // Camera mode (0: photo, 1: video)
+        _setCameraMode(cameraMode);
     }
 }
 
@@ -296,9 +422,9 @@ void
 VehicleCameraControl::toggleCameraMode()
 {
     if(!_resetting) {
-        if(cameraMode() == CAM_MODE_PHOTO || cameraMode() == CAM_MODE_SURVEY) {
+        if(_cameraMode == CAM_MODE_PHOTO || _cameraMode == CAM_MODE_SURVEY) {
             setCameraModeVideo();
-        } else if(cameraMode() == CAM_MODE_VIDEO) {
+        } else if(_cameraMode == CAM_MODE_VIDEO) {
             setCameraModePhoto();
         }
     }
@@ -308,13 +434,16 @@ VehicleCameraControl::toggleCameraMode()
 bool
 VehicleCameraControl::toggleVideoRecording()
 {
-    if(!_resetting) {
-        if(videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING) {
-            return stopVideoRecording();
-        } else {
-            return startVideoRecording();
-        }
+    if(_resetting) {
+        return false;
     }
+
+    if (captureVideoState() == CaptureVideoStateCapturing) {
+        return stopVideoRecording();
+    } else {
+        return startVideoRecording();
+    }
+
     return false;
 }
 
@@ -322,36 +451,44 @@ VehicleCameraControl::toggleVideoRecording()
 bool
 VehicleCameraControl::takePhoto()
 {
+    if (_resetting) {
+        return false;
+    }
+    if (capturePhotosState() != CapturePhotosStateIdle) {
+        qCWarning(CameraControlLog) << "Take photo requested - already capturing";
+        return false;
+    }
+    if (_cameraMode == CAM_MODE_VIDEO && !photosInVideoMode()) {
+        qCWarning(CameraControlLog) << "Take photo requested - camera does not handle image capture while in video mode";
+        return false;
+    }
+
     qCDebug(CameraControlLog) << "takePhoto()";
-    //-- Check if camera can capture photos or if it can capture it while in Video Mode
-    if(!capturesPhotos()) {
-        qCWarning(CameraControlLog) << "Camera does not handle image capture";
-        return false;
-    }
-    if(cameraMode() == CAM_MODE_VIDEO && !photosInVideoMode()) {
-        qCWarning(CameraControlLog) << "Camera does not handle image capture while in video mode";
-        return false;
-    }
-    if(photoCaptureStatus() != PHOTO_CAPTURE_IDLE) {
-        qCWarning(CameraControlLog) << "Camera not idle";
-        return false;
-    }
-    if(!_resetting) {
-        if(capturesPhotos()) {
-            _vehicle->sendMavCommand(
-                _compID,                                                                    // Target component
-                MAV_CMD_IMAGE_START_CAPTURE,                                                // Command id
-                false,                                                                      // ShowError
-                0,                                                                          // Reserved (Set to 0)
-                static_cast<float>(_photoCaptureMode == PHOTO_CAPTURE_SINGLE ? 0 : _photoLapse),   // Duration between two consecutive pictures (in seconds--ignored if single image)
-                _photoCaptureMode == PHOTO_CAPTURE_SINGLE ? 1 : _photoLapseCount);                 // Number of images to capture total - 0 for unlimited capture
-            _setPhotoStatus(PHOTO_CAPTURE_IN_PROGRESS);
-            _captureInfoRetries = 0;
-            //-- Capture local image as well
+
+    if (capturesPhotos()) {
+        _vehicle->sendMavCommand(
+            _compID,
+            MAV_CMD_IMAGE_START_CAPTURE,
+            true,                           // ShowError
+            0,                              // All cameras
+            static_cast<float>(_photoCaptureMode == PHOTO_CAPTURE_SINGLE ? 0 : _photoLapse),   // Duration between two consecutive pictures (in seconds--ignored if single image)
+            _photoCaptureMode == PHOTO_CAPTURE_SINGLE ? 1 : _photoLapseCount);                 // Number of images to capture total - 0 for unlimited capture
+        _setPhotoCaptureStatus(PHOTO_CAPTURE_IN_PROGRESS);
+        _captureInfoRetries = 0;
+        return true;
+    } else {
+        if (_photoCaptureMode == PHOTO_CAPTURE_SINGLE) {
             VideoManager::instance()->grabImage();
+            _setPhotoCaptureStatus(PHOTO_CAPTURE_IN_PROGRESS);
+            QTimer::singleShot(500, this, [this]() {
+                _setPhotoCaptureStatus(PHOTO_CAPTURE_IDLE);
+            });
             return true;
+        } else {
+            qgcApp()->showAppMessage(tr("Timelapse photo capture is not supported on cameras without still capture capability"));
         }
     }
+
     return false;
 }
 
@@ -359,45 +496,59 @@ VehicleCameraControl::takePhoto()
 bool
 VehicleCameraControl::stopTakePhoto()
 {
-    if(!_resetting) {
-        qCDebug(CameraControlLog) << "stopTakePhoto()";
-        if(photoCaptureStatus() == PHOTO_CAPTURE_IDLE || (photoCaptureStatus() != PHOTO_CAPTURE_INTERVAL_IDLE && photoCaptureStatus() != PHOTO_CAPTURE_INTERVAL_IN_PROGRESS)) {
-            return false;
-        }
-        if(capturesPhotos()) {
-            _vehicle->sendMavCommand(
-                _compID,                                                    // Target component
-                MAV_CMD_IMAGE_STOP_CAPTURE,                                 // Command id
-                false,                                                      // ShowError
-                0);                                                         // Reserved (Set to 0)
-            _setPhotoStatus(PHOTO_CAPTURE_IDLE);
-            _captureInfoRetries = 0;
-            return true;
-        }
+    if (_resetting) {
+        return false;
     }
-    return false;
+    if (capturePhotosState() != CapturePhotosStateCapturingMultiplePhotos) {
+        qCWarning(CameraControlLog) << "Stop taking photos requested - not currently capturing multiple photos";
+        return false;
+    }
+
+    qCDebug(CameraControlLog) << "stopTakePhoto()";
+
+    _vehicle->sendMavCommand(
+        _compID,                                                    // Target component
+        MAV_CMD_IMAGE_STOP_CAPTURE,                                 // Command id
+        false,                                                      // ShowError
+        0);                                                         // All cameras
+    _setPhotoCaptureStatus(PHOTO_CAPTURE_IDLE);
+    _captureInfoRetries = 0;
+
+    return true;
 }
 
 //-----------------------------------------------------------------------------
 bool
 VehicleCameraControl::startVideoRecording()
 {
-    if(!_resetting) {
-        qCDebug(CameraControlLog) << "startVideoRecording()";
-        //-- Check if camera can capture videos or if it can capture it while in Photo Mode
-        if(!capturesVideo() || (cameraMode() == CAM_MODE_PHOTO && !videoInPhotoMode())) {
-            return false;
-        }
-        if(videoCaptureStatus() != VIDEO_CAPTURE_STATUS_RUNNING) {
-            _vehicle->sendMavCommand(
-                _compID,                                    // Target component
-                MAV_CMD_VIDEO_START_CAPTURE,                // Command id
-                false,                                      // Don't Show Error (handle locally)
-                0,                                          // All streams
-                0);                                         // CAMERA_CAPTURE_STATUS streaming frequency
-            return true;
-        }
+    if (_resetting) {
+        return false;
     }
+    if (captureVideoState() == CaptureVideoStateCapturing) {
+        qCWarning(CameraControlLog) << "Start video requested - already recording";
+        return true;
+    }
+
+    qCDebug(CameraControlLog) << "Start video recording";
+
+    if (_cameraMode == CAM_MODE_PHOTO && !videoInPhotoMode()) {
+        return false;
+    }
+
+    if (capturesVideo()) {
+        _vehicle->sendMavCommand(
+            _compID,                        // Target component
+            MAV_CMD_VIDEO_START_CAPTURE,    // Command id
+            true,                           // Show error on failure
+            0,                              // All streams
+            0,                             // CAMERA_CAPTURE_STATUS streaming frequency
+            0);                             // All cameras
+        return true;
+    } else {
+        VideoManager::instance()->startRecording();
+        return true;
+    }
+
     return false;
 }
 
@@ -405,76 +556,30 @@ VehicleCameraControl::startVideoRecording()
 bool
 VehicleCameraControl::stopVideoRecording()
 {
-    if(!_resetting) {
-        qCDebug(CameraControlLog) << "stopVideoRecording()";
-        if(videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING) {
-            _vehicle->sendMavCommand(
-                _compID,                                    // Target component
-                MAV_CMD_VIDEO_STOP_CAPTURE,                 // Command id
-                false,                                      // Don't Show Error (handle locally)
-                0);                                         // Reserved (Set to 0)
-            return true;
-        }
+    if (_resetting) {
+        return false;
     }
+    if (captureVideoState() == CaptureVideoStateIdle) {
+        qCWarning(CameraControlLog) << "Stop video recording requested - already idle";
+        return true;
+    }
+
+    qCDebug(CameraControlLog) << "Stop video recording";
+
+    if (capturesVideo()) {
+        _vehicle->sendMavCommand(
+            _compID,                    // Target component
+            MAV_CMD_VIDEO_STOP_CAPTURE,
+            true,                       // Show error on failure
+            0,                          // All streams
+            0);                         // All cameras
+        return true;
+    } else {
+        VideoManager::instance()->stopRecording();
+        return true;
+    }
+
     return false;
-}
-
-//-----------------------------------------------------------------------------
-void
-VehicleCameraControl::setCameraModeVideo()
-{
-    if(!_resetting && hasModes()) {
-        qCDebug(CameraControlLog) << "setCameraModeVideo()";
-        //-- Does it have a mode parameter?
-        Fact* pMode = mode();
-        if(pMode) {
-            if(cameraMode() != CAM_MODE_VIDEO) {
-                pMode->setRawValue(CAM_MODE_VIDEO);
-                _setCameraMode(CAM_MODE_VIDEO);
-            }
-        } else {
-            //-- Use MAVLink Command
-            if(_cameraMode != CAM_MODE_VIDEO) {
-                //-- Use basic MAVLink message
-                _vehicle->sendMavCommand(
-                    _compID,                                // Target component
-                    MAV_CMD_SET_CAMERA_MODE,                // Command id
-                    true,                                   // ShowError
-                    0,                                      // Reserved (Set to 0)
-                    CAM_MODE_VIDEO);                        // Camera mode (0: photo, 1: video)
-                _setCameraMode(CAM_MODE_VIDEO);
-            }
-        }
-    }
-}
-
-//-----------------------------------------------------------------------------
-void
-VehicleCameraControl::setCameraModePhoto()
-{
-    if(!_resetting && hasModes()) {
-        qCDebug(CameraControlLog) << "setCameraModePhoto()";
-        //-- Does it have a mode parameter?
-        Fact* pMode = mode();
-        if(pMode) {
-            if(cameraMode() != CAM_MODE_PHOTO) {
-                pMode->setRawValue(CAM_MODE_PHOTO);
-                _setCameraMode(CAM_MODE_PHOTO);
-            }
-        } else {
-            //-- Use MAVLink Command
-            if(_cameraMode != CAM_MODE_PHOTO) {
-                //-- Use basic MAVLink message
-                _vehicle->sendMavCommand(
-                    _compID,                                // Target component
-                    MAV_CMD_SET_CAMERA_MODE,                // Command id
-                    true,                                   // ShowError
-                    0,                                      // Reserved (Set to 0)
-                    CAM_MODE_PHOTO);                        // Camera mode (0: photo, 1: video)
-                _setCameraMode(CAM_MODE_PHOTO);
-            }
-        }
-    }
 }
 
 //-----------------------------------------------------------------------------
@@ -672,11 +777,11 @@ VehicleCameraControl::_mavCommandResult(int vehicleId, int component, int comman
                 }
                 break;
             case MAV_CMD_VIDEO_START_CAPTURE:
-                _setVideoStatus(VIDEO_CAPTURE_STATUS_RUNNING);
+                _setVideoCaptureStatus(VIDEO_CAPTURE_STATUS_RUNNING);
                 _captureStatusTimer.start(1000);
                 break;
             case MAV_CMD_VIDEO_STOP_CAPTURE:
-                _setVideoStatus(VIDEO_CAPTURE_STATUS_STOPPED);
+                _setVideoCaptureStatus(VIDEO_CAPTURE_STATUS_STOPPED);
                 _captureStatusTimer.start(1000);
                 break;
             case MAV_CMD_REQUEST_CAMERA_CAPTURE_STATUS:
@@ -708,7 +813,7 @@ VehicleCameraControl::_mavCommandResult(int vehicleId, int component, int comman
                         _captureStatusTimer.start(1000);
                     } else {
                         qCDebug(CameraControlLog) << "Giving up start/stop image capture";
-                        _setPhotoStatus(PHOTO_CAPTURE_IDLE);
+                        _setPhotoCaptureStatus(PHOTO_CAPTURE_IDLE);
                     }
                     break;
                 case MAV_CMD_REQUEST_CAMERA_CAPTURE_STATUS:
@@ -734,12 +839,12 @@ VehicleCameraControl::_mavCommandResult(int vehicleId, int component, int comman
 
 //-----------------------------------------------------------------------------
 void
-VehicleCameraControl::_setVideoStatus(VideoCaptureStatus status)
+VehicleCameraControl::_setVideoCaptureStatus(VideoCaptureStatus captureStatus)
 {
-    if(_videoCaptureStatus != status) {
-        _videoCaptureStatus = status;
+    if(_currentVideoCaptureStatus != captureStatus) {
+        _currentVideoCaptureStatus = captureStatus;
         emit videoCaptureStatusChanged();
-        if(status == VIDEO_CAPTURE_STATUS_RUNNING) {
+        if(captureStatus == VIDEO_CAPTURE_STATUS_RUNNING) {
              _recordTime = 0;
              _recTime = QTime::currentTime();
              _videoRecordTimeUpdateTimer.start();
@@ -761,11 +866,11 @@ VehicleCameraControl::_recTimerHandler()
 
 //-----------------------------------------------------------------------------
 void
-VehicleCameraControl::_setPhotoStatus(PhotoCaptureStatus status)
+VehicleCameraControl::_setPhotoCaptureStatus(PhotoCaptureStatus captureStatus)
 {
-    if(_photoCaptureStatus != status) {
-        qCDebug(CameraControlLog) << "Set Photo Status:" << status;
-        _photoCaptureStatus = status;
+    if(_currentPhotoCaptureStatus != captureStatus) {
+        qCDebug(CameraControlLog) << "Set Photo Status:" << captureStatus;
+        _currentPhotoCaptureStatus = captureStatus;
         emit photoCaptureStatusChanged();
     }
 }
@@ -1473,7 +1578,7 @@ VehicleCameraControl::_requestStorageInfo()
 
 //-----------------------------------------------------------------------------
 void
-VehicleCameraControl::handleSettings(const mavlink_camera_settings_t& settings)
+VehicleCameraControl::handleCameraSettings(const mavlink_camera_settings_t& settings)
 {
     qCDebug(CameraControlLog) << "Received CAMERA_SETTINGS Mode:" << settings.mode_id << "- stopping timer, resetting retries";
     _cameraSettingsTimer.stop();
@@ -1565,17 +1670,17 @@ VehicleCameraControl::handleCaptureStatus(const mavlink_camera_capture_status_t&
     //-- Video/Image Capture Status
     uint8_t vs = cap.video_status < static_cast<uint8_t>(VIDEO_CAPTURE_STATUS_LAST) ? cap.video_status : static_cast<uint8_t>(VIDEO_CAPTURE_STATUS_UNDEFINED);
     uint8_t ps = cap.image_status < static_cast<uint8_t>(PHOTO_CAPTURE_LAST) ? cap.image_status : static_cast<uint8_t>(PHOTO_CAPTURE_STATUS_UNDEFINED);
-    _setVideoStatus(static_cast<VideoCaptureStatus>(vs));
-    _setPhotoStatus(static_cast<PhotoCaptureStatus>(ps));
+    _setVideoCaptureStatus(static_cast<VideoCaptureStatus>(vs));
+    _setPhotoCaptureStatus(static_cast<PhotoCaptureStatus>(ps));
     //-- Keep asking for it once in a while when recording
-    if(videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING) {
+    if(_videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING) {
         _captureStatusTimer.start(5000);
     //-- Same while (single) image capture is busy
-    } else if(photoCaptureStatus() != PHOTO_CAPTURE_IDLE && photoCaptureMode() == PHOTO_CAPTURE_SINGLE) {
+    } else if(_photoCaptureStatus() != PHOTO_CAPTURE_IDLE && photoCaptureMode() == PHOTO_CAPTURE_SINGLE) {
         _captureStatusTimer.start(1000);
     }
     //-- Time Lapse
-    if(photoCaptureStatus() == PHOTO_CAPTURE_INTERVAL_IDLE || photoCaptureStatus() == PHOTO_CAPTURE_INTERVAL_IN_PROGRESS) {
+    if(_photoCaptureStatus() == PHOTO_CAPTURE_INTERVAL_IDLE || _photoCaptureStatus() == PHOTO_CAPTURE_INTERVAL_IN_PROGRESS) {
         //-- Capture local image as well
         const QString photoDir = SettingsManager::instance()->appSettings()->savePath()->rawValue().toString() + QStringLiteral("/Photo");
         QGCFileHelper::ensureDirectoryExists(photoDir);
@@ -2084,7 +2189,7 @@ VehicleCameraControl::_handleDefinitionFile(const QString &url)
     QString ftpPrefix(QStringLiteral("%1://").arg(FTPManager::mavlinkFTPScheme));
     if (!xmlFile.exists() && url.startsWith(ftpPrefix, Qt::CaseInsensitive)) {
         qCDebug(CameraControlLog) << "No camera definition file cached, attempt ftp download";
-        int ver = static_cast<int>(_info.cam_definition_version);
+        int ver = static_cast<int>(_mavlinkCameraInfo.cam_definition_version);
         QString ext = "";
         if (url.endsWith(".lzma", Qt::CaseInsensitive)) { ext = ".lzma"; }
         if (url.endsWith(".xz", Qt::CaseInsensitive)) { ext = ".xz"; }
@@ -2237,7 +2342,7 @@ VehicleCameraControl::_paramDone()
 void
 VehicleCameraControl::_checkForVideoStreams()
 {
-    if(_info.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM) {
+    if(_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM) {
         connect(&_streamInfoTimer, &QTimer::timeout, this, &VehicleCameraControl::_streamInfoTimeout);
         _streamInfoTimer.setSingleShot(false);
         connect(&_streamStatusTimer, &QTimer::timeout, this, &VehicleCameraControl::_streamStatusTimeout);

@@ -32,9 +32,7 @@ MockLinkCamera::MockLinkCamera(MockLink *mockLink,
 
     // Camera 1: full-featured with configurable flags + always-on features
     _cameras[0].compId   = MAV_COMP_ID_CAMERA;
-    _cameras[0].capFlags = configuredFlags
-                         | CAMERA_CAP_FLAGS_HAS_BASIC_FOCUS
-                         | CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM;
+    _cameras[0].capFlags = configuredFlags | CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM;
 
     // Camera 2: photo-only (always CAPTURE_IMAGE only)
     _cameras[1].compId   = MAV_COMP_ID_CAMERA2;
