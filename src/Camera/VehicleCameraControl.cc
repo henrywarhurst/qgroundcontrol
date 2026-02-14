@@ -245,18 +245,14 @@ MavlinkCameraControl::CaptureVideoState VehicleCameraControl::captureVideoState(
 {
     if (_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM) {
         if (_videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING || VideoManager::instance()->recording()) {
-            qDebug() << "Camera capture video state: capturing";
             return CaptureVideoStateCapturing;
         } else if (_photoCaptureStatus() != PHOTO_CAPTURE_IDLE) {
-            qDebug() << "Camera capture video state: capturing (photo capture in progress) - disabled";
             return CaptureVideoStateDisabled;
         } else {
-            qDebug() << "Camera capture video state: idle";
             return CaptureVideoStateIdle;
         }
     }
 
-    qDebug() << "Camera capture video state: disabled";
     return CaptureVideoStateDisabled;
 }
 

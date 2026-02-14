@@ -62,6 +62,7 @@ public:
                             bool captureVideo = true,
                             bool captureImage = true,
                             bool hasModes = true,
+                            bool hasVideoStream = true,
                             bool canCaptureImageInVideoMode = true,
                             bool canCaptureVideoInImageMode = false,
                             bool hasBasicZoom = true,
