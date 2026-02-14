@@ -48,7 +48,6 @@ public:
     QSize resolution() const override { return QSize(0, 0); }
     bool capturesVideo() const override;
     bool capturesPhotos() const override;
-    bool showCameraModeSelector() const override;
     bool hasModes() const override;
     bool hasZoom() const override { return false; }
     bool hasFocus() const override { return false; }

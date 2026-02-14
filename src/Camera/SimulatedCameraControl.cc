@@ -41,8 +41,8 @@ void SimulatedCameraControl::setCameraMode(CameraMode cameraMode)
 {
     qCDebug(CameraControlLog) << cameraModeToStr(cameraMode);
 
-    if (!showCameraModeSelector()) {
-        qCWarning(CameraControlLog) << "called when camera does not support modes";
+    if (!hasModes()) {
+        qCWarning(CameraControlLog) << "Camera does not support modes";
         return;
     }
 
@@ -54,7 +54,7 @@ void SimulatedCameraControl::setCameraMode(CameraMode cameraMode)
             _setCameraMode(CAM_MODE_PHOTO);
             break;
         default:
-            qCWarning(CameraControlLog) << "invalid mode" << cameraMode;
+            qCWarning(CameraControlLog) << "Invalid mode" << cameraMode;
             break;
     }
 }
@@ -83,7 +83,7 @@ bool SimulatedCameraControl::toggleVideoRecording()
 
 void SimulatedCameraControl::setCameraModeVideo()
 {
-    if (!showCameraModeSelector()) {
+    if (!hasModes()) {
         qCWarning(CameraControlLog) << "Camera does not support modes";
         return;
     }
@@ -93,7 +93,7 @@ void SimulatedCameraControl::setCameraModeVideo()
 
 void SimulatedCameraControl::setCameraModePhoto()
 {
-    if (!showCameraModeSelector()) {
+    if (!hasModes()) {
         qCWarning(CameraControlLog) << "Camera does not support modes";
         return;
     }
@@ -183,15 +183,6 @@ bool SimulatedCameraControl::capturesPhotos() const
     return SettingsManager::instance()->flyViewSettings()->showSimpleCameraControl()->rawValue().toBool();
 }
 
-bool SimulatedCameraControl::showCameraModeSelector() const
-{
-    if (hasVideoStream()) {
-        // We can always screen grab from a video stream
-        return true;
-    }
-    // Otherwise we only have photo capture so we don't need the mode selector
-    return false;
-}
 
 bool SimulatedCameraControl::hasModes() const
 {

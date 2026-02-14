@@ -69,7 +69,6 @@ public:
     virtual QSize       resolution          () const { return QSize(_mavlinkCameraInfo.resolution_h, _mavlinkCameraInfo.resolution_v); }
     virtual bool        capturesVideo       () const;
     virtual bool        capturesPhotos      () const;
-    virtual bool        showCameraModeSelector() const;
     virtual bool        hasModes            () const { return _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_MODES; }
     virtual bool        hasZoom             () const { return _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_BASIC_ZOOM; }
     virtual bool        hasFocus            () const { return _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_BASIC_FOCUS; }

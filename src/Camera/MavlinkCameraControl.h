@@ -41,7 +41,6 @@ class MavlinkCameraControl : public FactGroup
     Q_PROPERTY(QSize                resolution              READ resolution                                         NOTIFY infoChanged)
     Q_PROPERTY(bool                 capturesVideo           READ capturesVideo                                      NOTIFY infoChanged)
     Q_PROPERTY(bool                 capturesPhotos          READ capturesPhotos                                     NOTIFY infoChanged)
-    Q_PROPERTY(bool                 showCameraModeSelector  READ showCameraModeSelector                             NOTIFY infoChanged)
     Q_PROPERTY(bool                 hasModes                READ hasModes                                           NOTIFY infoChanged)
     Q_PROPERTY(bool                 hasZoom                 READ hasZoom                                            NOTIFY infoChanged)
     Q_PROPERTY(bool                 hasFocus                READ hasFocus                                           NOTIFY infoChanged)
@@ -176,7 +175,6 @@ public:
     virtual QSize resolution() const = 0;
     virtual bool capturesVideo() const = 0;
     virtual bool capturesPhotos() const = 0;
-    virtual bool showCameraModeSelector() const = 0;
     virtual bool hasModes() const = 0;
     virtual bool hasZoom() const = 0;
     virtual bool hasFocus() const = 0;

@@ -182,11 +182,18 @@ Rectangle {
                     }
                 }
 
+                QGCLabel {
+                    Layout.alignment:   Qt.AlignHCenter
+                    text:               qsTr("Video")
+                    font.pointSize:     ScreenTools.smallFontPointSize
+                    visible:            videoCaptureButton.visible && photoCaptureButton.visible
+                }
+
                 // Record time
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     color: _videoCaptureIdle ? "transparent" : videoCaptureButtonPalette.videoCaptureButtonColor
-                    Layout.preferredWidth: videoRecordTime.width
+                    Layout.preferredWidth: videoRecordTime.width + (_smallMargins * 2)
                     Layout.preferredHeight: videoRecordTime.height
                     radius: _smallMargins
                     visible: videoCaptureButton.visible
@@ -198,8 +205,14 @@ Rectangle {
                         anchors.left:       parent.left
                         anchors.top:        parent.top
                         text:               _videoCaptureIdle ? "00:00:00" : _camera.recordTimeStr
-                        visible:            _cameraInVideoMode
                     }
+                }
+
+                Item {
+                    Layout.alignment:   Qt.AlignHCenter
+                    width:              1
+                    height:             1
+                    visible:            videoCaptureButton.visible && photoCaptureButton.visible
                 }
 
                 // Take Photo button
@@ -249,6 +262,13 @@ Rectangle {
                             }
                         }
                     }
+                }
+
+                QGCLabel {
+                    Layout.alignment:   Qt.AlignHCenter
+                    text:               qsTr("Photo")
+                    font.pointSize:     ScreenTools.smallFontPointSize
+                    visible:            videoCaptureButton.visible && photoCaptureButton.visible
                 }
 
                 // Capture count

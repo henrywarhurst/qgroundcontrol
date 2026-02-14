@@ -163,7 +163,7 @@ VehicleCameraControl::VehicleCameraControl(const mavlink_camera_information_t *i
     qCDebug(CameraControlLog) << "   resolution:" << resolution();
     qCDebug(CameraControlLog) << "   captures video:" << capturesVideo();
     qCDebug(CameraControlLog) << "   captures photos:" << capturesPhotos();
-    qCDebug(CameraControlLog) << "   has modes:" << showCameraModeSelector();
+    qCDebug(CameraControlLog) << "   has modes:" << hasModes();
     qCDebug(CameraControlLog) << "   has zoom:" << hasZoom();
     qCDebug(CameraControlLog) << "   has focus:" << hasFocus();
     qCDebug(CameraControlLog) << "   has tracking:" << hasTracking();
@@ -241,17 +241,6 @@ bool VehicleCameraControl::capturesPhotos() const
     return _mavlinkCameraInfo.flags & (CAMERA_CAP_FLAGS_CAPTURE_IMAGE | CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM);
 }
 
-bool VehicleCameraControl::showCameraModeSelector() const
-{
-    if (hasVideoStream()) {
-        // We can always screen grab from a video stream
-        return true;
-    }
-
-    // Otherwise we only have photo capture so we don't need the mode selector
-    return false;
-}
-
 MavlinkCameraControl::CaptureVideoState VehicleCameraControl::captureVideoState() const
 {
     if (_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM) {
@@ -321,20 +310,32 @@ VehicleCameraControl::batteryRemainingStr() const
 void
 VehicleCameraControl::setCameraModeVideo()
 {
-    if(!_resetting && showCameraModeSelector()) {
-        qCDebug(CameraControlLog) << "setCameraModeVideo()";
-        setCameraMode(CAM_MODE_VIDEO);
+    if (_resetting) {
+        return;
     }
+    if (!hasModes()) {
+        qCWarning(CameraControlLog) << "Camera does not support modes";
+        return;
+    }
+
+    qCDebug(CameraControlLog) << "Camera set to video mode";
+    setCameraMode(CAM_MODE_VIDEO);
 }
 
 //-----------------------------------------------------------------------------
 void
 VehicleCameraControl::setCameraModePhoto()
 {
-    if(!_resetting && showCameraModeSelector()) {
-        qCDebug(CameraControlLog) << "setCameraModePhoto()";
-        setCameraMode(CAM_MODE_PHOTO);
+    if (_resetting) {
+        return;
     }
+    if (!hasModes()) {
+        qCWarning(CameraControlLog) << "Camera does not support modes";
+        return;
+    }
+
+    qCDebug(CameraControlLog) << "Camera set to photo mode";
+    setCameraMode(CAM_MODE_PHOTO);
 }
 
 //-----------------------------------------------------------------------------
@@ -344,17 +345,19 @@ VehicleCameraControl::setCameraMode(CameraMode cameraMode)
     if (_resetting) {
         return;
     }
-    if (!showCameraModeSelector()) {
-        qCWarning(CameraControlLog) << "Internal Error: Camera does not support modes";
+    if (!hasModes()) {
+        qCWarning(CameraControlLog) << "Camera does not support modes";
         return;
     }
     if (cameraMode != CAM_MODE_PHOTO && cameraMode != CAM_MODE_VIDEO) {
-        qCWarning(CameraControlLog) << "Internal Error: Invalid camera mode" << cameraMode;
+        qCWarning(CameraControlLog) << "Invalid camera mode" << cameraMode;
         return;
     }
     if (_cameraMode == cameraMode) {
         return;
     }
+
+    qCDebug(CameraControlLog) << "Camera mode set to" << cameraModeToStr(cameraMode);
 
     //-- Does it have a mode parameter?
     Fact* pMode = mode();
@@ -504,13 +507,13 @@ VehicleCameraControl::stopTakePhoto()
         return false;
     }
 
-    qCDebug(CameraControlLog) << "stopTakePhoto()";
+    qCDebug(CameraControlLog) << "Camera stop taking photos";
 
     _vehicle->sendMavCommand(
-        _compID,                                                    // Target component
-        MAV_CMD_IMAGE_STOP_CAPTURE,                                 // Command id
-        false,                                                      // ShowError
-        0);                                                         // All cameras
+        _compID,                    // Target component
+        MAV_CMD_IMAGE_STOP_CAPTURE,
+        true,                       // ShowError
+        0);                         // All cameras
     _setPhotoCaptureStatus(PHOTO_CAPTURE_IDLE);
     _captureInfoRetries = 0;
 
@@ -529,7 +532,7 @@ VehicleCameraControl::startVideoRecording()
         return true;
     }
 
-    qCDebug(CameraControlLog) << "Start video recording";
+    qCDebug(CameraControlLog) << "Camera start video recording";
 
     if (_cameraMode == CAM_MODE_PHOTO && !videoInPhotoMode()) {
         return false;
@@ -538,7 +541,7 @@ VehicleCameraControl::startVideoRecording()
     if (capturesVideo()) {
         _vehicle->sendMavCommand(
             _compID,                        // Target component
-            MAV_CMD_VIDEO_START_CAPTURE,    // Command id
+            MAV_CMD_VIDEO_START_CAPTURE,
             true,                           // Show error on failure
             0,                              // All streams
             0,                             // CAMERA_CAPTURE_STATUS streaming frequency
@@ -564,7 +567,7 @@ VehicleCameraControl::stopVideoRecording()
         return true;
     }
 
-    qCDebug(CameraControlLog) << "Stop video recording";
+    qCDebug(CameraControlLog) << "Camera stop video recording";
 
     if (capturesVideo()) {
         _vehicle->sendMavCommand(
@@ -610,7 +613,7 @@ VehicleCameraControl::setThermalOpacity(double val)
 void
 VehicleCameraControl::setZoomLevel(qreal level)
 {
-    qCDebug(CameraControlLog) << "setZoomLevel()" << level;
+    qCDebug(CameraControlLog) << "Camera set zoom level to" << level;
     if(hasZoom()) {
         //-- Limit
         level = std::min(std::max(level, 0.0), 100.0);
@@ -629,7 +632,7 @@ VehicleCameraControl::setZoomLevel(qreal level)
 void
 VehicleCameraControl::setFocusLevel(qreal level)
 {
-    qCDebug(CameraControlLog) << "setFocusLevel()" << level;
+    qCDebug(CameraControlLog) << "Camera set focus level to" << level;
     if(hasFocus()) {
         //-- Limit
         level = std::min(std::max(level, 0.0), 100.0);
@@ -680,7 +683,7 @@ VehicleCameraControl::formatCard(int id)
 void
 VehicleCameraControl::stepZoom(int direction)
 {
-    qCDebug(CameraControlLog) << "stepZoom()" << direction;
+    qCDebug(CameraControlLog) << "Camera step zoom" << direction;
     if(_vehicle && hasZoom()) {
         _vehicle->sendMavCommand(
             _compID,                                // Target component
@@ -695,7 +698,7 @@ VehicleCameraControl::stepZoom(int direction)
 void
 VehicleCameraControl::startZoom(int direction)
 {
-    qCDebug(CameraControlLog) << "startZoom()" << direction;
+    qCDebug(CameraControlLog) << "Camera start zoom" << direction;
     if(_vehicle && hasZoom()) {
         _vehicle->sendMavCommand(
             _compID,                                // Target component
@@ -710,7 +713,7 @@ VehicleCameraControl::startZoom(int direction)
 void
 VehicleCameraControl::stopZoom()
 {
-    qCDebug(CameraControlLog) << "stopZoom()";
+    qCDebug(CameraControlLog) << "Camera stop zoom";
     if(_vehicle && hasZoom()) {
         _vehicle->sendMavCommand(
             _compID,                                // Target component
@@ -725,7 +728,7 @@ VehicleCameraControl::stopZoom()
 void
 VehicleCameraControl::_requestCaptureStatus()
 {
-    qCDebug(CameraControlLog) << "_requestCaptureStatus() - retries:" << _cameraCaptureStatusRetries;
+    qCDebug(CameraControlLog) << "Camera request capture status - retries:" << _cameraCaptureStatusRetries;
 
     if(_cameraCaptureStatusRetries++ % 2 == 0) {
         qCDebug(CameraControlLog) << "  Sending REQUEST_MESSAGE:MAVLINK_MSG_ID_CAMERA_CAPTURE_STATUS";
