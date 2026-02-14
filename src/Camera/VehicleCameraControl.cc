@@ -245,14 +245,18 @@ MavlinkCameraControl::CaptureVideoState VehicleCameraControl::captureVideoState(
 {
     if (_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_HAS_VIDEO_STREAM) {
         if (_videoCaptureStatus() == VIDEO_CAPTURE_STATUS_RUNNING || VideoManager::instance()->recording()) {
+            qDebug() << "Camera capture video state: capturing";
             return CaptureVideoStateCapturing;
         } else if (_photoCaptureStatus() != PHOTO_CAPTURE_IDLE) {
+            qDebug() << "Camera capture video state: capturing (photo capture in progress) - disabled";
             return CaptureVideoStateDisabled;
         } else {
+            qDebug() << "Camera capture video state: idle";
             return CaptureVideoStateIdle;
         }
     }
 
+    qDebug() << "Camera capture video state: disabled";
     return CaptureVideoStateDisabled;
 }
 
@@ -468,7 +472,7 @@ VehicleCameraControl::takePhoto()
 
     qCDebug(CameraControlLog) << "takePhoto()";
 
-    if (capturesPhotos()) {
+    if (_mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_CAPTURE_IMAGE) {
         _vehicle->sendMavCommand(
             _compID,
             MAV_CMD_IMAGE_START_CAPTURE,
@@ -509,6 +513,7 @@ VehicleCameraControl::stopTakePhoto()
 
     qCDebug(CameraControlLog) << "Camera stop taking photos";
 
+    // Interval capture is only supported directly by cameras
     _vehicle->sendMavCommand(
         _compID,                    // Target component
         MAV_CMD_IMAGE_STOP_CAPTURE,
@@ -532,13 +537,16 @@ VehicleCameraControl::startVideoRecording()
         return true;
     }
 
-    qCDebug(CameraControlLog) << "Camera start video recording";
-
-    if (_cameraMode == CAM_MODE_PHOTO && !videoInPhotoMode()) {
+    if (hasModes() && _cameraMode == CAM_MODE_PHOTO) {
+        qCWarning(CameraControlLog) << "Start video recording requested while in photo mode - not recording";
         return false;
     }
 
-    if (capturesVideo()) {
+    bool useMavlinkCommand = _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_CAPTURE_VIDEO;
+
+    qCDebug(CameraControlLog) << "Camera start video recording:" << (useMavlinkCommand ? "MAVLink command" : "VideoManager");
+
+    if (useMavlinkCommand) {
         _vehicle->sendMavCommand(
             _compID,                        // Target component
             MAV_CMD_VIDEO_START_CAPTURE,
@@ -546,13 +554,11 @@ VehicleCameraControl::startVideoRecording()
             0,                              // All streams
             0,                             // CAMERA_CAPTURE_STATUS streaming frequency
             0);                             // All cameras
-        return true;
     } else {
         VideoManager::instance()->startRecording();
-        return true;
     }
 
-    return false;
+    return true;
 }
 
 //-----------------------------------------------------------------------------
@@ -567,22 +573,22 @@ VehicleCameraControl::stopVideoRecording()
         return true;
     }
 
-    qCDebug(CameraControlLog) << "Camera stop video recording";
+    bool useMavlinkCommand = _mavlinkCameraInfo.flags & CAMERA_CAP_FLAGS_CAPTURE_VIDEO;
 
-    if (capturesVideo()) {
+    qCDebug(CameraControlLog) << "Camera stop video recording" << (useMavlinkCommand ? "MAVLink command" : "VideoManager");
+
+    if (useMavlinkCommand) {
         _vehicle->sendMavCommand(
             _compID,                    // Target component
             MAV_CMD_VIDEO_STOP_CAPTURE,
             true,                       // Show error on failure
             0,                          // All streams
             0);                         // All cameras
-        return true;
     } else {
         VideoManager::instance()->stopRecording();
-        return true;
     }
 
-    return false;
+    return true;
 }
 
 //-----------------------------------------------------------------------------

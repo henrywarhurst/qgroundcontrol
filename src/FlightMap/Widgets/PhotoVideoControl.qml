@@ -150,7 +150,7 @@ Rectangle {
                     radius:             width * 0.5
                     border.width:       1
                     border.color:       videoCaptureButtonPalette.buttonBorder
-                    visible:            _cameraInVideoMode && _camera.hasVideoStream
+                    visible:            (_camera.hasModes && _cameraInVideoMode) || (!_camera.hasModes && _camera.hasVideoStream)
 
                     QGCPalette { id: videoCaptureButtonPalette; colorGroupEnabled: videoCaptureButton.enabled }
 
@@ -225,7 +225,7 @@ Rectangle {
                     radius:             width * 0.5
                     border.width:       1
                     border.color:       photoCaptureButtonPalette.buttonBorder
-                    visible:            _camera.capturesPhotos || _camera.hasVideoStream
+                    visible:            (_camera.hasModes && _cameraInPhotoMode) || (!_camera.hasModes && (_camera.hasVideoStream || _camera.capturesPhotos))
 
                     QGCPalette { id: photoCaptureButtonPalette; colorGroupEnabled: photoCaptureButton.enabled }
 

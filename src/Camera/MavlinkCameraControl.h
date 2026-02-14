@@ -39,8 +39,6 @@ class MavlinkCameraControl : public FactGroup
     Q_PROPERTY(qreal                focalLength             READ focalLength                                        NOTIFY infoChanged)
     Q_PROPERTY(QSizeF               sensorSize              READ sensorSize                                         NOTIFY infoChanged)
     Q_PROPERTY(QSize                resolution              READ resolution                                         NOTIFY infoChanged)
-    Q_PROPERTY(bool                 capturesVideo           READ capturesVideo                                      NOTIFY infoChanged)
-    Q_PROPERTY(bool                 capturesPhotos          READ capturesPhotos                                     NOTIFY infoChanged)
     Q_PROPERTY(bool                 hasModes                READ hasModes                                           NOTIFY infoChanged)
     Q_PROPERTY(bool                 hasZoom                 READ hasZoom                                            NOTIFY infoChanged)
     Q_PROPERTY(bool                 hasFocus                READ hasFocus                                           NOTIFY infoChanged)
@@ -80,6 +78,11 @@ class MavlinkCameraControl : public FactGroup
     Q_PROPERTY(TrackingStatus       trackingStatus          READ trackingStatus                                     CONSTANT)
     Q_PROPERTY(bool                 trackingImageStatus     READ trackingImageStatus                                NOTIFY trackingImageStatusChanged)
     Q_PROPERTY(QRectF               trackingImageRect       READ trackingImageRect                                  NOTIFY trackingImageStatusChanged)
+
+    // These properties are used to determine what controls to show in the UI and are based on both the camera capabilities as well as the video manager status.
+    // They are not necessarily directly related to the MAVLink camera capabilities.
+    Q_PROPERTY(bool                 capturesVideo           READ capturesVideo                                      NOTIFY infoChanged)
+    Q_PROPERTY(bool                 capturesPhotos          READ capturesPhotos                                     NOTIFY infoChanged)
 
     // These are "virtual" states which take into account both the mavlink camera capabilities as well as the gstreamer abillity to locally record video
     // as well a do a phot grab from the video stream. These are what the UI should use to determine what options to present to the user and are updated
